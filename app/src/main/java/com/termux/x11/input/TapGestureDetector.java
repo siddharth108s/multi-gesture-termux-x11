@@ -15,76 +15,62 @@ import android.view.ViewConfiguration;
 import java.lang.ref.WeakReference;
 
 /**
- * This class detects multi-finger tap and long-press events. This is provided since the stock
- * Android gesture-detectors only detect taps/long-presses made with one finger.
+ * Detects multi-finger tap, double-tap, triple-tap, and long-press events.
+ * The stock Android gesture detectors only handle single-finger gestures.
+ *
+ * Tap counting: after the first lift, a timer waits for getDoubleTapTimeout().
+ * A second tap within that window increments the count. A third increments again.
+ * When the timer fires, the appropriate callback (onTap/onDoubleTap/onTripleTap) is called.
  */
 public class TapGestureDetector {
-    /** The listener for receiving notifications of tap gestures. */
-    public interface OnTapListener {
-        /**
-         * Notified when a tap event occurs.
-         *
-         * @param pointerCount The number of fingers that were tapped.
-         * @param x The x coordinate of the initial finger tapped.
-         * @param y The y coordinate of the initial finger tapped.
-         */
-        void onTap(int pointerCount, float x, float y);
 
-        /**
-         * Notified when a long-touch event occurs.
-         *
-         * @param pointerCount The number of fingers held down.
-         * @param x The x coordinate of the initial finger tapped.
-         * @param y The y coordinate of the initial finger tapped.
-         */
+    public interface OnTapListener {
+        void onTap(int pointerCount, float x, float y);
+        void onDoubleTap(int pointerCount, float x, float y);
+        void onTripleTap(int pointerCount, float x, float y);
         void onLongPress(int pointerCount, float x, float y);
     }
 
-    /** The listener to which notifications are sent. */
-    private final OnTapListener mListener;
+    private static final int MSG_LONGPRESS = 0;
+    private static final int MSG_TAP_TIMEOUT = 1;
 
-    /** Handler used for posting tasks to be executed in the future. */
+    private final OnTapListener mListener;
     private final Handler mHandler;
 
-    /**
-     * Stores the location of each down MotionEvent (by pointer ID), for detecting motion of any
-     * pointer beyond the TouchSlop region.
-     */
     private final SparseArray<PointF> mInitialPositions = new SparseArray<>();
-
-    /**
-     * Threshold squared-distance, in pixels, to use for motion-detection. If a finger moves less
-     * than this distance, the gesture is still eligible to be a tap event.
-     */
     private final int mTouchSlopSquare;
 
-    /** The maximum number of fingers seen in the gesture. */
+    /** The maximum number of fingers seen in the current gesture. */
     private int mPointerCount;
-
-    /** The coordinates of the first finger down seen in the gesture. */
+    /** Coordinates of the first finger down in the current gesture. */
     private PointF mInitialPoint;
-
-    /** Set to true whenever motion is detected in the gesture, or a long-touch is triggered. */
+    /** True if movement or long-press has cancelled the current tap. */
     private boolean mTapCancelled;
 
-    /** @noinspection NullableProblems*/
-    // This static inner class holds a WeakReference to the outer object, to avoid triggering the
-    // lint HandlerLeak warning.
+    // Multi-tap state: counts consecutive taps before the timeout fires.
+    private int mTapCount = 0;
+    private int mPendingPointerCount = 0;
+    private float mPendingX, mPendingY;
+
+    /** @noinspection NullableProblems */
     @SuppressWarnings("deprecation")
     private static class EventHandler extends Handler {
         private final WeakReference<TapGestureDetector> mDetector;
 
-        public EventHandler(TapGestureDetector detector) {
+        EventHandler(TapGestureDetector detector) {
             mDetector = new WeakReference<>(detector);
         }
 
         @Override
         public void handleMessage(Message message) {
-            TapGestureDetector detector = mDetector.get();
-            if (detector != null) {
-                detector.mTapCancelled = true;
-                detector.mListener.onLongPress(detector.mPointerCount, detector.mInitialPoint.x, detector.mInitialPoint.y);
-                detector.mInitialPoint = null;
+            TapGestureDetector d = mDetector.get();
+            if (d == null) return;
+            if (message.what == MSG_LONGPRESS) {
+                d.mTapCancelled = true;
+                d.mListener.onLongPress(d.mPointerCount, d.mInitialPoint.x, d.mInitialPoint.y);
+                d.mInitialPoint = null;
+            } else if (message.what == MSG_TAP_TIMEOUT) {
+                d.firePendingTap();
             }
         }
     }
@@ -92,22 +78,23 @@ public class TapGestureDetector {
     public TapGestureDetector(Context context, OnTapListener listener) {
         mListener = listener;
         mHandler = new EventHandler(this);
-        ViewConfiguration config = ViewConfiguration.get(context);
-        int touchSlop = config.getScaledTouchSlop();
+        int touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         mTouchSlopSquare = touchSlop * touchSlop;
     }
 
-    /**
-     * Analyzes the touch event to determine whether to notify the listener.
-     */
     public void onTouchEvent(MotionEvent event) {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
-                reset();
+                // If a tap sequence is in progress and the finger count matches, continue counting.
+                // If finger count changed, fire the pending tap first.
+                if (mTapCount > 0 && mPointerCount != 1) {
+                    // finger count is being re-evaluated; fire pending and start fresh
+                    mHandler.removeMessages(MSG_TAP_TIMEOUT);
+                    firePendingTap();
+                }
+                resetGesture();
                 trackDownEvent(event);
-
-                // Cause a long-press notification to be triggered after the timeout.
-                mHandler.sendEmptyMessageDelayed(0, ViewConfiguration.getLongPressTimeout());
+                mHandler.sendEmptyMessageDelayed(MSG_LONGPRESS, ViewConfiguration.getLongPressTimeout());
                 mPointerCount = 1;
                 break;
 
@@ -117,28 +104,38 @@ public class TapGestureDetector {
                 break;
 
             case MotionEvent.ACTION_MOVE:
-                if (!mTapCancelled) {
-                    if (trackMoveEvent(event)) {
-                        cancelLongTouchNotification();
-                        mTapCancelled = true;
-                    }
+                if (!mTapCancelled && trackMoveEvent(event)) {
+                    cancelLongPress();
+                    mTapCancelled = true;
                 }
                 break;
 
             case MotionEvent.ACTION_UP:
-                cancelLongTouchNotification();
-                if (!mTapCancelled)
-                    mListener.onTap(mPointerCount, mInitialPoint.x, mInitialPoint.y);
+                cancelLongPress();
+                if (!mTapCancelled) {
+                    // If a pending tap had a different finger count, fire it first
+                    if (mTapCount > 0 && mPendingPointerCount != mPointerCount) {
+                        mHandler.removeMessages(MSG_TAP_TIMEOUT);
+                        firePendingTap();
+                    }
+                    mTapCount++;
+                    mPendingPointerCount = mPointerCount;
+                    mPendingX = mInitialPoint != null ? mInitialPoint.x : 0;
+                    mPendingY = mInitialPoint != null ? mInitialPoint.y : 0;
+                    mHandler.sendEmptyMessageDelayed(MSG_TAP_TIMEOUT, ViewConfiguration.getDoubleTapTimeout());
+                }
                 mInitialPoint = null;
                 break;
 
             case MotionEvent.ACTION_POINTER_UP:
-                cancelLongTouchNotification();
+                cancelLongPress();
                 trackUpEvent(event);
                 break;
 
             case MotionEvent.ACTION_CANCEL:
-                cancelLongTouchNotification();
+                cancelLongPress();
+                mHandler.removeMessages(MSG_TAP_TIMEOUT);
+                mTapCount = 0;
                 break;
 
             default:
@@ -146,69 +143,57 @@ public class TapGestureDetector {
         }
     }
 
-    /** Stores the location of the ACTION_DOWN or ACTION_POINTER_DOWN event. */
+    /** Fires the appropriate tap callback based on mTapCount, then resets multi-tap state. */
+    private void firePendingTap() {
+        int count = mTapCount;
+        int fingers = mPendingPointerCount;
+        float x = mPendingX;
+        float y = mPendingY;
+        mTapCount = 0;
+        mPendingPointerCount = 0;
+        if (count == 1)      mListener.onTap(fingers, x, y);
+        else if (count == 2) mListener.onDoubleTap(fingers, x, y);
+        else                 mListener.onTripleTap(fingers, x, y);
+    }
+
     private void trackDownEvent(MotionEvent event) {
-        int pointerIndex = 0;
-        if (event.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN) {
-            pointerIndex = event.getActionIndex();
-        }
+        int pointerIndex = event.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN
+                ? event.getActionIndex() : 0;
         int pointerId = event.getPointerId(pointerIndex);
-        PointF eventPosition = new PointF(event.getX(pointerIndex), event.getY(pointerIndex));
-        mInitialPositions.put(pointerId, eventPosition);
-
-        if (mInitialPoint == null) {
-            mInitialPoint = eventPosition;
-        }
+        PointF pos = new PointF(event.getX(pointerIndex), event.getY(pointerIndex));
+        mInitialPositions.put(pointerId, pos);
+        if (mInitialPoint == null) mInitialPoint = pos;
     }
 
-    /** Removes the ACTION_UP or ACTION_POINTER_UP event from the stored list. */
     private void trackUpEvent(MotionEvent event) {
-        int pointerIndex = 0;
-        if (event.getActionMasked() == MotionEvent.ACTION_POINTER_UP) {
-            pointerIndex = event.getActionIndex();
-        }
-        int pointerId = event.getPointerId(pointerIndex);
-        mInitialPositions.remove(pointerId);
+        int pointerIndex = event.getActionMasked() == MotionEvent.ACTION_POINTER_UP
+                ? event.getActionIndex() : 0;
+        mInitialPositions.remove(event.getPointerId(pointerIndex));
     }
 
-    /**
-     * Processes an ACTION_MOVE event and returns whether a pointer moved beyond the TouchSlop
-     * threshold.
-     *
-     * @return True if motion was detected.
-     */
     private boolean trackMoveEvent(MotionEvent event) {
-        int pointerCount = event.getPointerCount();
-        for (int i = 0; i < pointerCount; i++) {
-            int pointerId = event.getPointerId(i);
-            float currentX = event.getX(i);
-            float currentY = event.getY(i);
-            PointF downPoint = mInitialPositions.get(pointerId);
-            if (downPoint == null) {
-                // There was no corresponding DOWN event, so add it. This is an inconsistency
-                // which shouldn't normally occur.
-                mInitialPositions.put(pointerId, new PointF(currentX, currentY));
+        for (int i = 0; i < event.getPointerCount(); i++) {
+            PointF down = mInitialPositions.get(event.getPointerId(i));
+            if (down == null) {
+                mInitialPositions.put(event.getPointerId(i), new PointF(event.getX(i), event.getY(i)));
                 continue;
             }
-            float deltaX = currentX - downPoint.x;
-            float deltaY = currentY - downPoint.y;
-            if (deltaX * deltaX + deltaY * deltaY > mTouchSlopSquare) {
-                return true;
-            }
+            float dx = event.getX(i) - down.x;
+            float dy = event.getY(i) - down.y;
+            if (dx * dx + dy * dy > mTouchSlopSquare) return true;
         }
         return false;
     }
 
-    /** Cleans up any stored data for the gesture. */
-    private void reset() {
-        cancelLongTouchNotification();
+    /** Resets only the current in-gesture state (not the multi-tap sequence). */
+    private void resetGesture() {
+        cancelLongPress();
         mPointerCount = 0;
         mInitialPositions.clear();
         mTapCancelled = false;
     }
 
-    /** Cancels any pending long-touch notifications from the message-queue. */
-    private void cancelLongTouchNotification() {
-        mHandler.removeMessages(0);
+    private void cancelLongPress() {
+        mHandler.removeMessages(MSG_LONGPRESS);
     }
 }

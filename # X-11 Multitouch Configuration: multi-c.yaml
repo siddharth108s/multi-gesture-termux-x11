@@ -1,0 +1,35 @@
+# X-11 Multitouch Configuration: multi-config.yaml
+taps:
+  single: [2: mouse-right-click, 3: mouse-middle-click, 4: tab-new,5: others-toggle-show-desktop]
+  double: [2: tab-new, 3: media-play/pause, 4: tab-open-last, 5: window-close]
+  triple: [2: tab-close]
+swipes:
+  up:     [4: tab-prev,5: window-maximise]
+  down:   [4: tab-next,5: window-minimise]
+  left:   [3: tab-prev, 4: window-prev,5: window-tile-left]
+  right:  [3: tab-next, 4: window-next,5: window-tile-right]
+pinch:
+  in:   [2: pinch-in, 3: close-applications-show-all, 4: window-minimise,5: exit-fullscreen]
+  out:  [2: pinch-out, 3: open-applications-show-all, 4: window-maximise,5: fullscreen]
+rotate:
+  left: [2: rotate-left]
+  right: [2: rotate-right]
+#For tap with x fingers, then release y fingers
+#Syntax: initial_finger_config-final_finger_config: 1 means pressed, 0 means lifted
+#Example: 11-01 means tap with two fingers, then lift the left finger
+tap-release:
+  11-01: volume-down
+  11-10: volume-up
+  111-100: volume-mute
+
+
+Actions:
+  window: [close, minimise, maximise, previous, next, tile-left, tile-right, fullscreen]
+  tab: [close, new, previous, next, open-last]
+  application: [open, show-all]
+  system:
+    volume: [up, down, mute]
+    brightness: [up, down]
+    media: [play/pause, stop, prev, next]
+  mouse: [left-click, right-click, middle-click, back, forward]
+  others: [toggle-show-desktop]

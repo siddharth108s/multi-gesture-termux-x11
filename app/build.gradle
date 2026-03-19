@@ -61,7 +61,8 @@ afterEvaluate {
 
         for (int i = 0; i < preferenceNodes.length; i++) {
             def node = preferenceNodes.item(i)
-            if (node.nodeName == 'EditTextPreference' && node.getAttribute("app:key") != "extra_keys_config")
+            if (node.nodeName == 'EditTextPreference' && node.getAttribute("app:key") != "extra_keys_config"
+                    && node.getAttribute("app:key") != "gestureConfig")
                 preferences << [ type: 'String',  key: node.getAttribute("app:key"), default: node.getAttribute("app:defaultValue") ]
             else if (node.nodeName == 'SeekBarPreference')
                 preferences << [ type: 'Int', key: node.getAttribute("app:key"), default: node.getAttribute("app:defaultValue") ]
@@ -95,9 +96,11 @@ afterEvaluate {
                 out << "  public final ${it.type}Preference ${it.key} = new ${it.type}Preference(\"${it.key}\", \"${it.default}\", R.array.${it.entries}, R.array.${it.values});\n"
         }
         out << '  public final StringPreference extra_keys_config = new StringPreference("extra_keys_config", TermuxX11ExtraKeys.DEFAULT_IVALUE_EXTRA_KEYS);\n'
+        out << '  public final StringPreference gestureConfig = new StringPreference("gestureConfig", "");\n'
         out << '  public final HashMap<String, Preference> keys = new HashMap<>() {{\n'
         preferences.each { out << '    put("' + it.key + '", ' + it.key + ');\n' }
         out << '    put("extra_keys_config", extra_keys_config);\n'
+        out << '    put("gestureConfig", gestureConfig);\n'
         out << '  }};\n'
         out << '\n'
         out << '  public Prefs(Context ctx) {\n'

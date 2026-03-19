@@ -114,4 +114,11 @@ E.g. <b>META</b> for <i>META key</i>, \n
     <string name="lorie_pref_summary_requiresExactOrCustom">Requires "display resolution mode" to be "exact" or "custom"</string>
     <string name="lorie_pref_summary_requiresIntercepting">Requires intercepting system shortcuts with Dex mode or with Accessibility service</string>
     <string name="lorie_pref_summary_requiresTrackpadAndNative">Requires "Touchscreen input mode" to be "Trackpad" and "Display resolution mode" to be not "native"</string>
+
+    <string name="lorie_pref_gestures">Gestures</string>
+    <string name="lorie_pref_gestures_enabled">Enable custom gestures</string>
+    <string name="lorie_pref_gestures_enabled_summary">Multi-finger taps, swipes, pinch, rotate and tap-release</string>
+    <string name="lorie_pref_gesture_config">Gesture configuration</string>
+    <string name="lorie_pref_gesture_config_summary">Edit the JSON gesture map. Reset restores defaults.</string>
+    <string name="gesture_config_desc">JSON gesture configuration. Keys: tap.single.N, tap.double.N, tap.triple.N, swipe.up/down/left/right.N, pinch.in/out.N, rotate.left/right.N, tap-release.MASK-MASK. Values: action strings such as tab-new, window-close, volume-up, etc.</string>
 </resources>

@@ -24,6 +24,7 @@ import android.view.GestureDetector;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewConfiguration;
 
@@ -97,6 +98,25 @@ public class TouchInputHandler {
     private BiConsumer<Integer, Boolean> swipeUpAction = noAction, swipeDownAction = noAction,
             volumeUpAction = noAction, volumeDownAction = noAction, backButtonAction = noAction,
             mediaKeysAction = noAction;
+
+    // Gesture config system
+    private GestureConfig mGestureConfig;
+    private GestureActionHandler mGestureActionHandler;
+    private ScaleGestureDetector mScaleDetector;
+
+    // Extended swipe tracking (X axis + finger count)
+    private float mTotalMotionX;
+    private int mSwipePointerCount;
+
+    // Pinch/rotate detection state
+    private boolean mPinchCommitted;
+    private boolean mRotateCommitted;
+    private float mLastAngle = Float.NaN;
+    private int mScalePointerCount;
+
+    // Tap-release detection state
+    private int mTapReleaseDownCount;
+    private boolean mTapReleaseActive;
 
     private static final int KEY_BACK = 158;
 
@@ -191,6 +211,24 @@ public class TouchInputHandler {
 
         mTapDetector = new TapGestureDetector(/*desktop*/ activity, listener);
         mSwipePinchDetector = new SwipeDetector(/*desktop*/ activity);
+
+        mScaleDetector = new ScaleGestureDetector(activity, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            @Override
+            public boolean onScale(ScaleGestureDetector detector) {
+                if (!mRotateCommitted) mPinchCommitted = true;
+                return true;
+            }
+            @Override
+            public void onScaleEnd(ScaleGestureDetector detector) {
+                if (mPinchCommitted && !mSwipePinchDetector.isSwiping()) {
+                    // mScalePointerCount is set during handleTouchEvent pointer tracking
+                    String dir = detector.getScaleFactor() < 1f ? "pinch.in." : "pinch.out.";
+                    onGestureAction(dir + mScalePointerCount);
+                }
+                mPinchCommitted = false;
+            }
+        });
+        mGestureActionHandler = new GestureActionHandler(activity, activity.getLorieView());
 
         // The threshold needs to be bigger than the ScaledTouchSlop used by the gesture-detectors,
         // so that a gesture cannot be both a tap and a swipe. It also needs to be small enough so
@@ -321,6 +359,7 @@ public class TouchInputHandler {
             mScroller.onTouchEvent(event);
             mTapDetector.onTouchEvent(event);
             mSwipePinchDetector.onTouchEvent(event);
+            mScaleDetector.onTouchEvent(event);
 
             // For hardware touchpad in DeX (captured mode), handle physical click buttons
             if ((event.getSource() & InputDevice.SOURCE_TOUCHPAD) == InputDevice.SOURCE_TOUCHPAD) {
@@ -335,6 +374,31 @@ public class TouchInputHandler {
                     mSuppressCursorMovement = false;
                     mSwipeCompleted = false;
                     mIsDragging = false;
+                    mTotalMotionX = 0;
+                    mPinchCommitted = false;
+                    mRotateCommitted = false;
+                    mLastAngle = Float.NaN;
+                    mTapReleaseDownCount = 1;
+                    mTapReleaseActive = true;
+                    break;
+
+                case MotionEvent.ACTION_POINTER_DOWN:
+                    mTotalMotionY = 0;
+                    mTotalMotionX = 0;
+                    mTapReleaseDownCount = event.getPointerCount();
+                    mScalePointerCount = event.getPointerCount();
+                    break;
+
+                case MotionEvent.ACTION_POINTER_UP:
+                    checkTapRelease(event);
+                    break;
+
+                case MotionEvent.ACTION_UP:
+                    mTapReleaseActive = false;
+                    break;
+
+                case MotionEvent.ACTION_CANCEL:
+                    mTapReleaseActive = false;
                     break;
 
                 case MotionEvent.ACTION_SCROLL:
@@ -343,10 +407,6 @@ public class TouchInputHandler {
 
                     mInjector.sendMouseWheelEvent(scrollX, scrollY);
                     return true;
-
-                case MotionEvent.ACTION_POINTER_DOWN:
-                    mTotalMotionY = 0;
-                    break;
 
                 default:
                     break;
@@ -466,6 +526,8 @@ public class TouchInputHandler {
         backButtonAction = extractUserActionFromPreferences(p, "backButton");
         mediaKeysAction = extractUserActionFromPreferences(p, "mediaKeys");
 
+        mGestureConfig = p.gesturesEnabled.get() ? new GestureConfig(p.gestureConfig.get()) : null;
+
         if(mTouchpadHandler != null)
             mTouchpadHandler.reloadPreferences(p);
     }
@@ -569,16 +631,73 @@ public class TouchInputHandler {
 
     /** Processes a (multi-finger) swipe gesture. */
     private boolean onSwipe() {
-        if (mTotalMotionY > mSwipeThreshold)
-            swipeDownAction.accept(0, true);
-        else if (mTotalMotionY < -mSwipeThreshold)
-            swipeUpAction.accept(0, true);
-        else
-            return false;
+        int n = mSwipePointerCount;
+        String key = null;
 
+        if (Math.abs(mTotalMotionY) >= Math.abs(mTotalMotionX)) {
+            // Vertical swipe
+            if (mTotalMotionY > mSwipeThreshold) {
+                if (mGestureConfig != null && mGestureConfig.getAction("swipe.down." + n) != null)
+                    key = "swipe.down." + n;
+                else if (n == 3)
+                    swipeDownAction.accept(0, true);
+                else
+                    return false;
+            } else if (mTotalMotionY < -mSwipeThreshold) {
+                if (mGestureConfig != null && mGestureConfig.getAction("swipe.up." + n) != null)
+                    key = "swipe.up." + n;
+                else if (n == 3)
+                    swipeUpAction.accept(0, true);
+                else
+                    return false;
+            } else {
+                return false;
+            }
+        } else {
+            // Horizontal swipe
+            if (mTotalMotionX > mSwipeThreshold)
+                key = "swipe.right." + n;
+            else if (mTotalMotionX < -mSwipeThreshold)
+                key = "swipe.left." + n;
+            else
+                return false;
+        }
+
+        if (key != null) onGestureAction(key);
         mSuppressCursorMovement = true;
         mSwipeCompleted = true;
         return true;
+    }
+
+    /**
+     * Dispatches a gesture action by key (e.g. "tap.single.2", "swipe.up.4").
+     * Mouse actions are handled inline; all others delegated to GestureActionHandler.
+     */
+    private void onGestureAction(String key) {
+        if (mGestureConfig == null) return;
+        String action = mGestureConfig.getAction(key);
+        if (action == null) return;
+        switch (action) {
+            case "mouse-right-click":  mInputStrategy.onTap(InputStub.BUTTON_RIGHT); break;
+            case "mouse-middle-click": mInputStrategy.onTap(InputStub.BUTTON_MIDDLE); break;
+            default: mGestureActionHandler.execute(action); break;
+        }
+    }
+
+    /** Checks for tap-release patterns on ACTION_POINTER_UP. */
+    private void checkTapRelease(MotionEvent event) {
+        if (!mTapReleaseActive || mGestureConfig == null) return;
+        int n = mTapReleaseDownCount;
+        int liftIndex = event.getActionIndex();
+        StringBuilder before = new StringBuilder();
+        StringBuilder after = new StringBuilder();
+        for (int i = 0; i < n; i++) before.append('1');
+        for (int i = 0; i < n; i++) after.append(i == liftIndex ? '0' : '1');
+        String tapKey = "tap-release." + before + "-" + after;
+        if (mGestureConfig.getAction(tapKey) != null) {
+            mGestureActionHandler.execute(mGestureConfig.getAction(tapKey));
+            mTapReleaseActive = false;
+        }
     }
 
     /** Responds to touch events filtered by the gesture detectors.
@@ -627,6 +746,8 @@ public class TouchInputHandler {
                 // direction of increasing Y coordinate (downwards) results in distanceY being
                 // negative.
                 mTotalMotionY -= distanceY;
+                mTotalMotionX -= distanceX;
+                mSwipePointerCount = pointerCount;
                 return onSwipe();
             }
 
@@ -641,6 +762,23 @@ public class TouchInputHandler {
                 // Prevent the cursor being moved or flung by the gesture.
                 mSuppressCursorMovement = true;
                 return true;
+            }
+
+            // Rotation detection for 2-finger gestures that are NOT swipes (i.e., pinch-type)
+            if (pointerCount == 2 && !mSwipePinchDetector.isSwiping() && !mPinchCommitted && !mRotateCommitted) {
+                float angle = (float) Math.toDegrees(Math.atan2(e2.getY(1) - e2.getY(0), e2.getX(1) - e2.getX(0)));
+                if (Float.isNaN(mLastAngle)) {
+                    mLastAngle = angle;
+                } else {
+                    float delta = angle - mLastAngle;
+                    // Normalize to [-180, 180]
+                    if (delta > 180) delta -= 360;
+                    if (delta < -180) delta += 360;
+                    if (Math.abs(delta) > 20f) {
+                        mRotateCommitted = true;
+                        onGestureAction(delta > 0 ? "rotate.right." + pointerCount : "rotate.left." + pointerCount);
+                    }
+                }
             }
 
             if (pointerCount != 1 || mSuppressCursorMovement)
@@ -672,6 +810,13 @@ public class TouchInputHandler {
          */
         @Override
         public void onTap(int pointerCount, float x, float y) {
+            // New gesture config takes priority if an action is defined for this finger count
+            if (mGestureConfig != null && mGestureConfig.getAction("tap.single." + pointerCount) != null) {
+                onGestureAction("tap.single." + pointerCount);
+                return;
+            }
+
+            // Fallback: existing mouse-button behaviour for 1-3 fingers
             int button = mouseButtonFromPointerCount(pointerCount);
             if (button == InputStub.BUTTON_UNDEFINED)
                 return;
@@ -687,6 +832,16 @@ public class TouchInputHandler {
                 mInputStrategy.onTap(button);
             else
                 mGestureListenerHandler.sendEmptyMessageDelayed(InputStub.BUTTON_LEFT, ViewConfiguration.getDoubleTapTimeout());
+        }
+
+        @Override
+        public void onDoubleTap(int pointerCount, float x, float y) {
+            onGestureAction("tap.double." + pointerCount);
+        }
+
+        @Override
+        public void onTripleTap(int pointerCount, float x, float y) {
+            onGestureAction("tap.triple." + pointerCount);
         }
 
         private float mLastFocusX;

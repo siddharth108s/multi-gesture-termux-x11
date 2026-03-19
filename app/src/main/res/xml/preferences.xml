@@ -6,6 +6,7 @@
         <Preference app:title="@string/lorie_pref_output" app:fragment="output" />
         <Preference app:title="@string/lorie_pref_pointer" app:fragment="pointer" />
         <Preference app:title="@string/lorie_pref_kbd" app:fragment="kbd" />
+        <Preference app:title="@string/lorie_pref_gestures" app:fragment="gestures" />
         <Preference app:title="@string/lorie_pref_other" app:fragment="other" />
         <Preference app:key="version" app:title="@string/lorie_pref_version" />
     </PreferenceScreen>
@@ -73,5 +74,9 @@
         <ListPreference app:key="notificationButton0Action" app:defaultValue="open preferences" app:entries="@array/userActionsValues" app:entryValues="@array/userActionsValues" />
         <ListPreference app:key="notificationButton1Action" app:defaultValue="exit" app:entries="@array/userActionsValues" app:entryValues="@array/userActionsValues" />
         <ListPreference app:key="mediaKeysAction" app:defaultValue="no action" app:entries="@array/userActionsMediaKeyValues" app:entryValues="@array/userActionsMediaKeyValues" />
+    </PreferenceScreen>
+    <PreferenceScreen app:key="gestures">
+        <SwitchPreferenceCompat app:key="gesturesEnabled" app:defaultValue="true" app:title="@string/lorie_pref_gestures_enabled" app:summary="@string/lorie_pref_gestures_enabled_summary" />
+        <EditTextPreference app:key="gestureConfig" app:title="@string/lorie_pref_gesture_config" app:summary="@string/lorie_pref_gesture_config_summary" />
     </PreferenceScreen>
 </PreferenceScreen>

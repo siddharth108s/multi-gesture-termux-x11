@@ -481,6 +481,28 @@ public class LoriePreferences extends AppCompatActivity implements PreferenceFra
                         .setNegativeButton("Cancel", (dialog, whichButton) -> dialog.dismiss())
                         .create()
                         .show();
+            } else if ("gestureConfig".contentEquals(preference.getKey())) {
+                @SuppressLint("InflateParams")
+                View view = getLayoutInflater().inflate(R.layout.extra_keys_config, null, false);
+                EditText config = view.findViewById(R.id.extra_keys_config);
+                config.setTypeface(Typeface.MONOSPACE);
+                String current = prefs.gestureConfig.get();
+                config.setText(current.isEmpty()
+                        ? com.termux.x11.input.GestureConfig.DEFAULT_CONFIG
+                        : current);
+                TextView desc = view.findViewById(R.id.extra_keys_config_description);
+                desc.setText(R.string.gesture_config_desc);
+                desc.setMovementMethod(LinkMovementMethod.getInstance());
+                new android.app.AlertDialog.Builder(getActivity())
+                        .setView(view)
+                        .setTitle("Gesture config (JSON)")
+                        .setPositiveButton("OK",
+                                (dialog, whichButton) -> prefs.gestureConfig.put(config.getText().toString()))
+                        .setNeutralButton("Reset",
+                                (dialog, whichButton) -> prefs.gestureConfig.put(""))
+                        .setNegativeButton("Cancel", (dialog, whichButton) -> dialog.dismiss())
+                        .create()
+                        .show();
             } else super.onDisplayPreferenceDialog(preference);
         }
     }
@@ -567,6 +589,10 @@ public class LoriePreferences extends AppCompatActivity implements PreferenceFra
                                 break;
                             }
                             case "extra_keys_config": {
+                                edit.putString(key, newValue);
+                                break;
+                            }
+                            case "gestureConfig": {
                                 edit.putString(key, newValue);
                                 break;
                             }

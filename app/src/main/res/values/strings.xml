@@ -120,5 +120,7 @@ E.g. <b>META</b> for <i>META key</i>, \n
     <string name="lorie_pref_gestures_enabled_summary">Multi-finger taps, swipes, pinch, rotate and tap-release</string>
     <string name="lorie_pref_gesture_config">Gesture configuration</string>
     <string name="lorie_pref_gesture_config_summary">Edit the JSON gesture map. Reset restores defaults.</string>
-    <string name="gesture_config_desc">JSON gesture configuration. Keys: tap.single.N, tap.double.N, tap.triple.N, swipe.up/down/left/right.N, pinch.in/out.N, rotate.left/right.N, tap-release.MASK-MASK. Values: action strings such as tab-new, window-close, volume-up, etc.</string>
+    <string name="gesture_config_desc">JSON gesture configuration. Keys: tap.single.N, tap.double.N, tap.triple.N, swipe.up/down/left/right.N, pinch.in/out.N, rotate.left/right.N, tap-release.B-A. Values: action strings such as tab-new, window-close, volume-up, etc.</string>
+    <string name="lorie_pref_gesture_toast">Show gesture feedback</string>
+    <string name="lorie_pref_gesture_toast_summary">Show a brief notification when a gesture is recognised</string>
 </resources>

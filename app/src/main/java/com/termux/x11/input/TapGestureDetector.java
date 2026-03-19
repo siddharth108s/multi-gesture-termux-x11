@@ -21,6 +21,9 @@ import java.lang.ref.WeakReference;
  * Tap counting: after the first lift, a timer waits for getDoubleTapTimeout().
  * A second tap within that window increments the count. A third increments again.
  * When the timer fires, the appropriate callback (onTap/onDoubleTap/onTripleTap) is called.
+ *
+ * Multi-tap sequence state (mTapCount, mPendingPointerCount) is NOT reset on ACTION_DOWN —
+ * only reset when the timeout fires or when finger count changes between taps.
  */
 public class TapGestureDetector {
 
@@ -82,16 +85,22 @@ public class TapGestureDetector {
         mTouchSlopSquare = touchSlop * touchSlop;
     }
 
+    /**
+     * Cancel an in-progress tap sequence. Called externally when another gesture
+     * (e.g. tap-release) wins the gesture conflict.
+     */
+    public void cancelTapSequence() {
+        mHandler.removeMessages(MSG_TAP_TIMEOUT);
+        mTapCount = 0;
+        mPendingPointerCount = 0;
+    }
+
     public void onTouchEvent(MotionEvent event) {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
-                // If a tap sequence is in progress and the finger count matches, continue counting.
-                // If finger count changed, fire the pending tap first.
-                if (mTapCount > 0 && mPointerCount != 1) {
-                    // finger count is being re-evaluated; fire pending and start fresh
-                    mHandler.removeMessages(MSG_TAP_TIMEOUT);
-                    firePendingTap();
-                }
+                // Starting a new gesture — reset in-gesture state but keep multi-tap sequence.
+                // If the pending tap has a different finger count, fire it now before continuing.
+                // We don't know the new tap's finger count yet, so defer comparison to ACTION_UP.
                 resetGesture();
                 trackDownEvent(event);
                 mHandler.sendEmptyMessageDelayed(MSG_LONGPRESS, ViewConfiguration.getLongPressTimeout());
@@ -113,7 +122,7 @@ public class TapGestureDetector {
             case MotionEvent.ACTION_UP:
                 cancelLongPress();
                 if (!mTapCancelled) {
-                    // If a pending tap had a different finger count, fire it first
+                    // If the pending tap had a different finger count, fire it first
                     if (mTapCount > 0 && mPendingPointerCount != mPointerCount) {
                         mHandler.removeMessages(MSG_TAP_TIMEOUT);
                         firePendingTap();
@@ -122,6 +131,7 @@ public class TapGestureDetector {
                     mPendingPointerCount = mPointerCount;
                     mPendingX = mInitialPoint != null ? mInitialPoint.x : 0;
                     mPendingY = mInitialPoint != null ? mInitialPoint.y : 0;
+                    mHandler.removeMessages(MSG_TAP_TIMEOUT);
                     mHandler.sendEmptyMessageDelayed(MSG_TAP_TIMEOUT, ViewConfiguration.getDoubleTapTimeout());
                 }
                 mInitialPoint = null;

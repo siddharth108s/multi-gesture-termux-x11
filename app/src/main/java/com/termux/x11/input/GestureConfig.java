@@ -12,13 +12,17 @@ import java.util.Map;
  * Parses a JSON gesture configuration string into a flat action map.
  *
  * Key format: "<type>.<subtype>.<fingerCount>"
- * Examples: "tap.single.2", "swipe.up.4", "pinch.in.3", "tap-release.11-01"
+ * Examples: "tap.single.2", "swipe.up.4", "pinch.in.3"
+ *
+ * Tap-release keys: "tap-release.<before>-<after>" where before/after are finger counts.
+ * Example: "tap-release.2-1" means "had 2 fingers, lifted 1 (1 remains)".
+ * Example: "tap-release.1-0" means "had 1 finger, lifted it (0 remain)" — fires on fast re-tap.
  *
  * JSON top-level keys map to prefixes:
- *   taps       -> tap
- *   swipes     -> swipe
- *   pinch      -> pinch
- *   rotate     -> rotate
+ *   taps        -> tap
+ *   swipes      -> swipe
+ *   pinch       -> pinch
+ *   rotate      -> rotate
  *   tap-release -> tap-release
  */
 public class GestureConfig {
@@ -43,7 +47,7 @@ public class GestureConfig {
         "    \"out\": {\"2\":\"pinch-out\",\"3\":\"open-applications-show-all\",\"4\":\"window-maximise\",\"5\":\"fullscreen\"}\n" +
         "  },\n" +
         "  \"rotate\": {\"left\":{\"2\":\"rotate-left\"},\"right\":{\"2\":\"rotate-right\"}},\n" +
-        "  \"tap-release\": {\"11-01\":\"volume-down\",\"11-10\":\"volume-up\",\"111-100\":\"volume-mute\"}\n" +
+        "  \"tap-release\": {\"2-1\":\"volume-down\",\"1-0\":\"volume-up\",\"3-2\":\"volume-mute\"}\n" +
         "}";
 
     private final Map<String, String> mActions;

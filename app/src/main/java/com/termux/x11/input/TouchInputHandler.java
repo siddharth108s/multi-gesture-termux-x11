@@ -27,6 +27,7 @@ import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewConfiguration;
+import android.widget.Toast;
 
 import androidx.annotation.IntDef;
 import androidx.core.app.NotificationCompat;
@@ -103,6 +104,7 @@ public class TouchInputHandler {
     private GestureConfig mGestureConfig;
     private GestureActionHandler mGestureActionHandler;
     private ScaleGestureDetector mScaleDetector;
+    private boolean mGestureToast;
 
     // Extended swipe tracking (X axis + finger count)
     private float mTotalMotionX;
@@ -113,10 +115,12 @@ public class TouchInputHandler {
     private boolean mRotateCommitted;
     private float mLastAngle = Float.NaN;
     private int mScalePointerCount;
+    private float mCumulativeScaleFactor = 1f;
 
-    // Tap-release detection state
+    // Tap-release detection state: tracks the number of fingers currently down
     private int mTapReleaseDownCount;
-    private boolean mTapReleaseActive;
+    // Set to true when a POINTER_UP has occurred, enabling "1-0" tap-release on full lift
+    private boolean mTapReleaseHadPartialLift;
 
     private static final int KEY_BACK = 158;
 
@@ -214,7 +218,13 @@ public class TouchInputHandler {
 
         mScaleDetector = new ScaleGestureDetector(activity, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
             @Override
+            public boolean onScaleBegin(ScaleGestureDetector detector) {
+                mCumulativeScaleFactor = 1f;
+                return true;
+            }
+            @Override
             public boolean onScale(ScaleGestureDetector detector) {
+                mCumulativeScaleFactor *= detector.getScaleFactor();
                 if (!mRotateCommitted) mPinchCommitted = true;
                 return true;
             }
@@ -222,7 +232,7 @@ public class TouchInputHandler {
             public void onScaleEnd(ScaleGestureDetector detector) {
                 if (mPinchCommitted && !mSwipePinchDetector.isSwiping()) {
                     // mScalePointerCount is set during handleTouchEvent pointer tracking
-                    String dir = detector.getScaleFactor() < 1f ? "pinch.in." : "pinch.out.";
+                    String dir = mCumulativeScaleFactor < 1f ? "pinch.in." : "pinch.out.";
                     onGestureAction(dir + mScalePointerCount);
                 }
                 mPinchCommitted = false;
@@ -378,8 +388,9 @@ public class TouchInputHandler {
                     mPinchCommitted = false;
                     mRotateCommitted = false;
                     mLastAngle = Float.NaN;
+                    mCumulativeScaleFactor = 1f;
                     mTapReleaseDownCount = 1;
-                    mTapReleaseActive = true;
+                    mTapReleaseHadPartialLift = false;
                     break;
 
                 case MotionEvent.ACTION_POINTER_DOWN:
@@ -394,11 +405,21 @@ public class TouchInputHandler {
                     break;
 
                 case MotionEvent.ACTION_UP:
-                    mTapReleaseActive = false;
+                    // Last finger lifted — "1-0" tap-release only applies after a prior partial lift
+                    if (mTapReleaseHadPartialLift && mGestureConfig != null && mTapReleaseDownCount == 1) {
+                        String tapKey = "tap-release.1-0";
+                        if (mGestureConfig.getAction(tapKey) != null) {
+                            onGestureAction(tapKey);
+                            mTapDetector.cancelTapSequence();
+                        }
+                    }
+                    mTapReleaseDownCount = 0;
+                    mTapReleaseHadPartialLift = false;
                     break;
 
                 case MotionEvent.ACTION_CANCEL:
-                    mTapReleaseActive = false;
+                    mTapReleaseDownCount = 0;
+                    mTapReleaseHadPartialLift = false;
                     break;
 
                 case MotionEvent.ACTION_SCROLL:
@@ -527,6 +548,7 @@ public class TouchInputHandler {
         mediaKeysAction = extractUserActionFromPreferences(p, "mediaKeys");
 
         mGestureConfig = p.gesturesEnabled.get() ? new GestureConfig(p.gestureConfig.get()) : null;
+        mGestureToast = p.gestureToast.get();
 
         if(mTouchpadHandler != null)
             mTouchpadHandler.reloadPreferences(p);
@@ -677,6 +699,8 @@ public class TouchInputHandler {
         if (mGestureConfig == null) return;
         String action = mGestureConfig.getAction(key);
         if (action == null) return;
+        if (mGestureToast)
+            Toast.makeText(mActivity, key + " → " + action, Toast.LENGTH_SHORT).show();
         switch (action) {
             case "mouse-right-click":  mInputStrategy.onTap(InputStub.BUTTON_RIGHT); break;
             case "mouse-middle-click": mInputStrategy.onTap(InputStub.BUTTON_MIDDLE); break;
@@ -686,18 +710,18 @@ public class TouchInputHandler {
 
     /** Checks for tap-release patterns on ACTION_POINTER_UP. */
     private void checkTapRelease(MotionEvent event) {
-        if (!mTapReleaseActive || mGestureConfig == null) return;
-        int n = mTapReleaseDownCount;
-        int liftIndex = event.getActionIndex();
-        StringBuilder before = new StringBuilder();
-        StringBuilder after = new StringBuilder();
-        for (int i = 0; i < n; i++) before.append('1');
-        for (int i = 0; i < n; i++) after.append(i == liftIndex ? '0' : '1');
+        mTapReleaseHadPartialLift = true;
+        if (mGestureConfig == null) return;
+        int before = mTapReleaseDownCount;
+        int after = before - 1; // one finger just lifted
         String tapKey = "tap-release." + before + "-" + after;
         if (mGestureConfig.getAction(tapKey) != null) {
-            mGestureActionHandler.execute(mGestureConfig.getAction(tapKey));
-            mTapReleaseActive = false;
+            onGestureAction(tapKey);
+            // Cancel any pending tap so it doesn't also fire (e.g. right-click on 2-finger tap)
+            mTapDetector.cancelTapSequence();
         }
+        // Re-arm with remaining finger count so user can repeat without lifting all fingers
+        mTapReleaseDownCount = after;
     }
 
     /** Responds to touch events filtered by the gesture detectors.

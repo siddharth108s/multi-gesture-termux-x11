@@ -77,6 +77,7 @@
     </PreferenceScreen>
     <PreferenceScreen app:key="gestures">
         <SwitchPreferenceCompat app:key="gesturesEnabled" app:defaultValue="true" app:title="@string/lorie_pref_gestures_enabled" app:summary="@string/lorie_pref_gestures_enabled_summary" />
+        <SwitchPreferenceCompat app:key="gestureToast" app:defaultValue="true" app:title="@string/lorie_pref_gesture_toast" app:summary="@string/lorie_pref_gesture_toast_summary" />
         <EditTextPreference app:key="gestureConfig" app:title="@string/lorie_pref_gesture_config" app:summary="@string/lorie_pref_gesture_config_summary" />
     </PreferenceScreen>
 </PreferenceScreen>

@@ -621,8 +621,15 @@ static void lorieWorkingQueueCallback(int fd, int __unused ready, void __unused 
 }
 
 void lorieChoreographerFrameCallback(__unused long t, AChoreographer* d) {
-    AChoreographer_postFrameCallback(d, (AChoreographer_frameCallback) lorieChoreographerFrameCallback, d);
-    if (pScreenPtr) {
+    static int frameCounter = 0;
+    static int frameSkip = 1;  // Set this based on your desired FPS
+
+    AChoreographer_postFrameCallback(d, (AChoreographer_frameCallback)
+lorieChoreographerFrameCallback, d);
+
+    frameCounter++;
+    if (frameCounter >= frameSkip && pScreenPtr) {
+        frameCounter = 0;
         QueueWorkProc(lorieRedraw, NULL, NULL);
         lorieWakeServer();
     }
@@ -645,9 +652,12 @@ static Bool lorieScreenInit(ScreenPtr pScreen, unused int argc, unused char **ar
     pvfb->vblank_interval = 1000000 / pvfb->root.framerate;
 
     if (FALSE
-          || !miSetVisualTypesAndMasks(24, ((1 << TrueColor) | (1 << DirectColor)), 8, TrueColor, 0xFF0000, 0x00FF00, 0x0000FF)
+          //|| !miSetVisualTypesAndMasks(24, ((1 << TrueColor) | (1 << DirectColor)), 8, TrueColor, 0xFF0000, 0x00FF00, 0x0000FF)
+          || !miSetVisualTypesAndMasks(8, (1 << PseudoColor), 8, PseudoColor, 0, 0, 0)
           || !miSetPixmapDepths()
-          || !fbScreenInit(pScreen, NULL, pvfb->root.width, pvfb->root.height, monitorResolution, monitorResolution, 0, 32)
+          || !fbScreenInit(pScreen, NULL, pvfb->root.width, pvfb->root.height, monitorResolution,
+  monitorResolution, 0, 8)
+          //|| !fbScreenInit(pScreen, NULL, pvfb->root.width, pvfb->root.height, monitorResolution, monitorResolution, 0, 32)
           || !(pScreen->CreateScreenResources = lorieCreateScreenResources) // Simply replace unneeded function
           || !(!pvfb->dri3 || dri3_screen_init(pScreen, &lorieDri3Info))
           || !fbPictureInit(pScreen, 0, 0)
